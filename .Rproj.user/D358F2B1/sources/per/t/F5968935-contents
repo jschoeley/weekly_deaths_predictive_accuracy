@@ -1,0 +1,198 @@
+# Init --------------------------------------------------------------------
+
+library(tidyverse)
+library(patchwork)
+
+cnst <- list()
+# sub-population for demonstration
+cnst$year <- 2020
+cnst$age_group <- "[60,80)"
+cnst$sex <- "Men"
+
+cnst$colors <- c("Denmark" = "#c60c30", "Sweden" = "#004B87")
+cnst$theme <-
+  theme_minimal() +
+  theme(
+    panel.grid = element_blank(),
+    panel.grid.major.y = element_line(linetype = 3, color = "grey80")
+  )
+
+dat <- list()
+fig <- list()
+
+ExportPDF <-
+  function(figure,
+           filename,
+           path,
+           width = 170,
+           height = 100,
+           scale = 1,
+           ...) {
+    require(ggplot2)
+    ggsave(
+      filename = paste0(filename, ".pdf"),
+      plot = figure,
+      path = path,
+      width = width,
+      height = height,
+      units = "mm",
+      dpi = 300,
+      scale = scale,
+      useDingbats = FALSE,
+      ...
+    )
+  }
+
+# Load data on excess deaths ----------------------------------------------
+
+# These are expected and observed mortality rates and death counts
+# for Denmark and Sweden. Expectations are based upon the
+# Serfling-Poisson model.
+load("data/Final_results_21072020.RData")
+
+dat$dkswe <-
+  Final.results %>%
+  as_tibble() %>%
+  filter(year == cnst$year, age_group == cnst$age_group, sex == cnst$sex) %>%
+  select(
+    country,
+    year,
+    sex,
+    weeks_since_origin,
+    weeks_into_year,
+    age_group,
+    model,
+    deaths,
+    exposures
+  ) %>%
+  pivot_wider(names_from = model, values_from = deaths) %>%
+  rename(deaths_observed = observed, deaths_expected = deaths.serfling) %>%
+  # weeks_since_origin are defined differently between Denmark and Sweden
+  # here I align both definitions for 2020
+  mutate(
+    weeks_since_origin =
+      ifelse(country == "Denmark", weeks_since_origin + 2, weeks_since_origin)
+  ) %>%
+  mutate(
+    mortality_observed =
+      deaths_observed / exposures,
+    mortality_expected =
+      deaths_expected / exposures,
+    excess_mortality =
+      mortality_observed / mortality_expected
+  )
+
+# counterfactual mortality for Denmark given Swedish excess mortality
+dat$dkswe <-
+  full_join(dat$dkswe,
+    {
+      dat$dkswe %>%
+        filter(country == "Sweden") %>%
+        select(year,
+          sex,
+          weeks_since_origin,
+          age_group,
+          counterfactual_excess_mortality = excess_mortality
+        )
+    },
+    by = c("year", "sex", "weeks_since_origin", "age_group")
+  ) %>%
+  mutate(
+    counterfactual_mortality =
+      mortality_expected * counterfactual_excess_mortality
+  )
+
+dat$for_plot <-
+  dat$dkswe %>%
+  filter(
+    sex == "Men",
+    age_group == "[60,80)",
+    year == 2020,
+    weeks_into_year <= 22
+  ) %>%
+  mutate(
+    weeks_into_year =
+      ifelse(country == "Sweden", weeks_into_year + 1 + 0.2, weeks_into_year +
+        1)
+  )
+
+# Excess mortality plot -------------------------------------------
+
+mortality_rates <-
+  dat$for_plot %>%
+  ggplot() +
+  geom_point(aes(
+    x = weeks_into_year,
+    y = mortality_observed, color = country
+  )) +
+  geom_segment(
+    aes(
+      y = mortality_expected,
+      yend = counterfactual_mortality,
+      x = weeks_into_year,
+      xend = weeks_into_year,
+      color = country
+    ),
+    lty = 3,
+    color = cnst$colors["Sweden"],
+    data = dat$for_plot
+  ) +
+  geom_segment(
+    aes(
+      y = mortality_expected,
+      yend = mortality_observed,
+      x = weeks_into_year,
+      xend = weeks_into_year,
+      color = country
+    )
+  ) +
+  geom_line(
+    aes(
+      x = weeks_into_year,
+      y = mortality_expected,
+      color = country
+    )
+  ) +
+  geom_point(
+    aes(
+      x = weeks_into_year,
+      y = counterfactual_mortality,
+      color = country
+    ),
+    shape = 21,
+    fill = "white"
+  ) +
+  scale_color_manual(values = cnst$colors) +
+  scale_y_continuous(
+    trans = "log10",
+    labels = scales::label_comma(scale = 1e4)
+  ) +
+  labs(x = NULL, y = "Deaths per 10,000 person-weeks (log-scaled)")
+
+excess_mortality <-
+  dat$for_plot %>%
+  ggplot(aes(x = weeks_into_year)) +
+  geom_segment(
+    aes(
+      y = 1,
+      yend = excess_mortality,
+      x = weeks_into_year,
+      xend = weeks_into_year,
+      color = country
+    )
+  ) +
+  geom_hline(aes(yintercept = 1),
+    color = "grey80"
+  ) +
+  scale_y_continuous() +
+  scale_color_manual(values = cnst$colors) +
+  labs(x = "Week of year", y = "Excess mortality ratio")
+
+fig$excess_mortality <-
+  mortality_rates + excess_mortality +
+  plot_layout(nrow = 2, heights = c(2, 1)) &
+  guides(color = "none") &
+  cnst$theme &
+  coord_cartesian(expand = TRUE, clip = "off")
+
+ExportPDF(fig$excess_mortality, "excess_mortality", "out/", width = 145, scale = 1.5)
