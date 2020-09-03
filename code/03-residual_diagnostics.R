@@ -19,7 +19,7 @@ load('out/model_fits.RData')
 dat$residuals_by_week_and_sex <-
   mod %>%
   unnest(predictions) %>%
-  group_by(cv_id, model_name, training,
+  group_by(cv_id, model_name, sample,
            iso_week, sex) %>%
   summarise(
     observed_deaths =
@@ -49,7 +49,7 @@ dat$residuals_by_week_and_sex <-
 
 dat$summarised_residuals <-
   dat$residuals_by_week_and_sex %>%
-  group_by(model_name, training, sex) %>%
+  group_by(model_name, sample, sex) %>%
   summarise(
     mpe = mean(residual_deaths_pe, na.rm = TRUE),
     me = mean(residual_deaths_e, na.rm = TRUE),
@@ -63,7 +63,7 @@ dat$summarised_residuals <-
 dat$residuals_by_week_and_sex %>%
   pivot_longer(cols = c(residual_deaths_e:residual_log_mortality_e),
                names_to = 'residual_type', values_to = 'residual_value') %>%
-  filter(training == 'test') %>%
+  filter(sample == 'test') %>%
   group_by(residual_type) %>%
   group_walk(~{
     fig[[paste0(.y$residual_type, '_by_week')]] <<-
@@ -86,7 +86,7 @@ dat$residuals_by_week_and_sex %>%
 dat$residuals_by_week_and_sex %>%
   pivot_longer(cols = c(residual_deaths_e:residual_log_mortality_e),
                names_to = 'residual_type', values_to = 'residual_value') %>%
-  filter(training == 'test') %>%
+  filter(sample == 'test') %>%
   group_by(residual_type) %>%
   group_walk(~{
     residual_summary <-
@@ -121,7 +121,7 @@ dat$residuals_by_week_and_sex %>%
       scale_x_continuous() +
       facet_grid(sex~model_name) +
       guides(color = 'none') +
-      glob$ggtheme +
+      glob$MyGGplotTheme() +
       labs(x = .y$residual_type)
   })
 
@@ -133,7 +133,7 @@ dat$summarised_residuals %>%
     names_to = 'summary_type', values_to = 'summary_value'
   ) %>%
   pivot_wider(
-    names_from = training,
+    names_from = sample,
     values_from = summary_value
   ) %>%
   group_by(summary_type) %>%
@@ -165,7 +165,7 @@ dat$summarised_residuals %>%
             label = paste0(formatC(test, digits = 3))),
         position = position_dodge2(width = 0.5)
       ) +
-      glob$ggtheme +
+      glob$MyGGplotTheme() +
       coord_flip() +
       labs(x = NULL, y = .y$summary_type)
     
