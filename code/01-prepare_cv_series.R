@@ -190,7 +190,7 @@ dat$tt <-
     # strata
     sex, age_group,
     # time
-    date, year, iso_week,
+    date, year, iso_week, weeks_since_origin,
     epi_year, epi_year_int, start_of_epi_year, epi_week,
     # time flags
     season, flu_season, special_week,
