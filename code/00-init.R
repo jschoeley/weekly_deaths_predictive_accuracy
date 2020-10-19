@@ -1,5 +1,8 @@
 # Global constants and functions for
 # "Weekly deaths predictive accuracy"
+#
+# 2020-10-19
+#
 # Jonas Schöley
 
 # Global constants ------------------------------------------------
@@ -10,6 +13,45 @@ glob <- list()
 
 glob <- within(glob, {
 
+  countries <- dplyr::tribble(
+    ~country_code   , ~country_name              , ~hemisphere,
+    'AUT'           , 'Austria'                  , 'northern',
+    'BEL'           , 'Belgium'                  , 'northern',
+    'BGR'           , 'Bulgaria'                 , 'northern',
+    'HRV'           , 'Croatia'                  , 'northern',
+    'CZE'           , 'Czech Republic'           , 'northern',
+    'DNK'           , 'Denmark'                  , 'northern',
+    'GBRTENW'       , 'England And Wales'        , 'northern',
+    'EST'           , 'Estonia'                  , 'northern',
+    'FIN'           , 'Finland'                  , 'northern',
+    'FRATNP'        , 'France'                   , 'northern',
+    'DEUTNP'        , 'Germany'                  , 'northern',
+    'GRC'           , 'Greece'                   , 'northern',
+    'HUN'           , 'Hungary'                  , 'northern',
+    'ISL'           , 'Iceland'                  , 'northern',
+    'ISR'           , 'Israel'                   , 'northern',
+    'ITA'           , 'Italy'                    , 'northern',
+    'LVA'           , 'Latvia'                   , 'northern',
+    'LTU'           , 'Lithuania'                , 'northern',
+    'LUX'           , 'Luxembourg'               , 'northern',
+    'NLD'           , 'Netherlands'              , 'northern',
+    'GBR_NIR'       , 'Northern Ireland'         , 'northern',
+    'NOR'           , 'Norway'                   , 'northern',
+    'POL'           , 'Poland'                   , 'northern',
+    'PRT'           , 'Portugal'                 , 'northern',
+    'RUS'           , 'Russia'                   , 'northern',
+    'GBR_SCO'       , 'Scotland'                 , 'northern',
+    'SVN'           , 'Slovenia'                 , 'northern',
+    'SVK'           , 'Slovakia'                 , 'northern',
+    'ESP'           , 'Spain'                    , 'northern',
+    'CHE'           , 'Switzerland'              , 'northern',
+    'SWE'           , 'Sweden'                   , 'northern',
+    'USA'           , 'United States of America' , 'northern'
+  )
+  
+  # iso-week which starts epi-year
+  week_epi_year_starts <- 27
+  
   # definition of seasons in iso-weeks
   seasons <-
     list(
@@ -27,28 +69,13 @@ glob <- within(glob, {
           `Fall` = 10:22
         )
     )
-  # iso-week which starts epi-year
-  week_epi_year_starts <- 27
-  
+
   # iso-weeks which define usual flu season
   flu_seasons <-
     list(
       northern = c(49:53, 1:12),
       southern = 23:38
     )
-  
-  # codebook
-  codebook <- list(
-    sex = c(`m` = "Male", `f` = "Female", `b` = "Total"),
-    age_group =
-      c(
-        `0_14` = "[0,15)",
-        `15_64` = "[15,65)",
-        `65_74` = "[65,75)",
-        `75_84` = "[75,85)",
-        `85p` = "85+"
-      )
-  )
   
   # color coding
   colors <- list(
@@ -180,7 +207,7 @@ glob <- within(glob, {
 #' @param offset Integer offset added to `week` before date calculation.
 #'
 #' @return A date object.
-#'
+#' 
 #' @source https://en.wikipedia.org/wiki/ISO_8601
 #'
 #' @author Jonas Schöley
@@ -188,18 +215,18 @@ glob <- within(glob, {
 #' @examples
 #' # the first Week of 2020 actually starts Monday, December 30th 2019
 #' ISOWeekDate2Date(2020, 1, 1)
-ISOWeekDate2Date <- function(year, week, weekday = 1, offset = 0) {
+ISOWeekDate2Date <- function (year, week, weekday = 1, offset = 0) {
   require(ISOweek)
   isoweek_string <-
     paste0(
-      year, "-W",
+      year, '-W',
       formatC(
-        week + offset,
-        flag = "0",
-        format = "d",
+        week+offset,
+        flag = '0',
+        format = 'd',
         digits = 1
       ),
-      "-", weekday
+      '-', weekday
     )
   ISOweek2date(isoweek_string)
 }
@@ -260,37 +287,19 @@ EpiYearSequence <- function(from, to, what = 'slash') {
   )
 }
 
-# This model and estimates the average mortality rate over
-# some years within each week and stratum. The associated
-# predict() method multiplies this average mortality with
-# given exposures to derive death counts.
-
-AverageMortalityModel <-
-  function(df, week, deaths, exposures, ...) {
-    require(dplyr)
-    .strata <- enquos(...)
-    .week <- enquo(week)
-    .deaths <- enquo(deaths)
-    .exposures <- enquo(exposures)
-    
-    avg_mx <-
-      df %>%
-      group_by(!!!.strata, !!.week) %>%
-      summarise(
-        avg_mortality = mean(!!.deaths / !!.exposures),
-        .groups = "drop"
-      )
-    
-    structure(list(avg = avg_mx), class = "avgmx")
-  }
-
-predict.avgmx <- function(object, newdata, ...) {
-  require(dplyr)
-  
-  suppressMessages(left_join(newdata, object$avg)) %>%
-    pull(avg_mortality)
+IsoWeekToEpiWeek <- function (iso_week, w_start = 1, w_53 = FALSE) {
+  a <- iso_week - w_start
+  ifelse(a < 0, 51 + a + 1 + w_53, a)
 }
 
+EpiWeekToIsoWeek <- function (epi_week, w_start = 1, w_53 = FALSE) {
+  a <- epi_week + w_start
+  ifelse(a > (52 + w_53), a - (52 + w_53), a)
+}
+
+#' Export ggplot
+#' 
+#' @author Jonas Schöley
 ExportFigure <-
   function(figure,
            path,
@@ -329,6 +338,9 @@ ExportFigure <-
     do.call(ggsave, arguments)
   }
 
+#' Export ggplots Stored in List
+#' 
+#' @author Jonas Schöley
 ExportFiguresFromList <- function(lst, path, ...) {
   figure_names <- tolower(gsub('\\.+', '_', make.names(names(lst))))
   Fun <- function (figure, filename, ...) {
@@ -339,3 +351,85 @@ ExportFiguresFromList <- function(lst, path, ...) {
     Fun, path = path, ...
   )
 }
+
+#' Convert population estimates to population exposures
+#'
+#' Converts population estimates measured at discrete points
+#' in time into population exposures by interpolating between
+#' the data points using a cubic spline and integrating over
+#' arbitrary time intervals.
+#' 
+#' @param df A data frame.
+#' @param x Name of time variable.
+#' @param P Name of population variable.
+#' @param breaks_out Vector of interpolation points.
+#' @param scaler Constant factor to change unit of exposures.
+#' @param strata `vars()` specification of variables in df to stratify over.
+#'
+#' @return A data frame stratified by `strata` with population counts
+#' `Px` at time `x1` and exposures `Ex` over time interval `[x1,x2)`. 
+#'
+#' @author Jonas Schöley, José Manuel Aburto
+#'
+#' @examples
+#' df <-
+#'   expand.grid(
+#'     sex = c('Male', 'Female'),
+#'     age = c('[0, 80)', '80+'),
+#'     quarter_week = c(1, 14, 27, 40)
+#'   )
+#' df$P = rnorm(16, 1e3, sd = 100)
+#' Population2Exposures(
+#'   df, x = quarter_week, P = P,
+#'   breaks_out = 1:57, strata = vars(sex, age)
+#' )
+Population2Exposures <-
+  function (df, x, P, breaks_out, scaler = 1, strata = NA) {
+    
+    require(dplyr)
+    require(tidyr)
+    require(purrr)
+    
+    x = enquo(x); P = enquo(P)
+    
+    # for each stratum in the data return
+    #   - interpolation function
+    #   - interpolated population sizes
+    #   - interpolated and integrated exposures
+    group_by(df, !!!strata) %>% nest() %>%
+      mutate(
+        # limits of time intervals
+        x1 = list(head(breaks_out, -1)),
+        x2 = list(breaks_out[-1]),
+        # cubic spline interpolation function with linear extrapolation
+        interpolation_function = map(
+          data,
+          ~ splinefun(x = pull(., !!x), y = pull(., !!P),
+                      method = 'natural')
+        ),
+        # interpolated population numbers
+        Px = map(
+          interpolation_function,
+          ~ .(x = head(breaks_out, -1))
+        ),
+        # interpolated and integrated population exposures
+        Ex = map(
+          interpolation_function,
+          # closed form expression for piecewise polynomial
+          # integral exists of course but implementation is
+          # left for a later point
+          ~ {
+            fnct <- .
+            map2_dbl(
+              unlist(x1),
+              unlist(x2),
+              ~ integrate(fnct, lower = .x, upper = .y)[['value']]*scaler
+            )
+          }
+        )
+      ) %>%
+      ungroup() %>%
+      select(-data, -interpolation_function) %>%
+      unnest(c(x1, x2, Px, Ex))
+    
+  }
