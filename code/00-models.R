@@ -1,6 +1,6 @@
 # Short-term mortality forecasting models
 # 
-# 2020-10-19
+# 2020-10-20
 #
 # Jonas Schöley
 
@@ -13,6 +13,31 @@
 # an object containing the fitted model, coefficients etc., and
 # <predictions>, which is the input data frame <df_prediction> with
 # an added column called <predicted_deaths>.
+
+# For test purposes -----------------------------------------------
+
+load('data/2020-10-05-xstmf_cv.RData')
+library(dplyr)
+test_data <-
+  xstmf_cv %>%
+  filter(country_code == 'DNK', cv_id == 1) %>%
+  rename(y = epi_year, w = epi_week, j = stratum_id) %>%
+  mutate(
+    j_fac = factor(j),
+    w_fac = as.factor(w),
+    y_short = paste0(substr(y, 3, 4), '/', substr(y, 8, 9))
+  )
+
+df_input <- test_data
+df_training <- filter(test_data, sample == 'training')
+df_test <- filter(test_data, sample == 'test')
+
+.week <- quo(w)
+.deaths <- quo(observed_deaths)
+.exposures <- quo(exposure_pw_hmd)
+.year <- quo(y)
+.sample <- quo(sample)
+.stratum_id <- quo(j_fac)
 
 # Simple averages model -------------------------------------------
 
@@ -143,12 +168,13 @@ GAMModel <- function (
 
 CODAModel <- function (
   df_input,
-  formula,
-  winter_deaths_epi_weeks, exogenous_epi_weeks, reference_week,
+  formula, transform,
+  winter_deaths_epi_weeks, exogenous_epi_weeks,
   stratum_name, week_name, death_name, exposure_name, sample_name, year_name
 ) {
   
   require(dplyr)
+  require(compositions)
   .stratum_id <- enquo(stratum_name)
   .week <- enquo(week_name)
   .deaths <- enquo(death_name)
@@ -158,14 +184,18 @@ CODAModel <- function (
   
   # constants
   fudge = 1e-6 # yeah, no 0s allowed in CODA...
-
+  
   # because coda can't train on partial information for a year
   # add an indicator stating if a given year contains test data
   dat_input <-
     df_input %>%
     group_by(!!.stratum_id, !!.year) %>%
     mutate(epi_year_contains_test_data = any(!!.sample == 'test')) %>%
-    ungroup()
+    ungroup() %>%
+    mutate(
+      # add row id for later identification
+      row_id = 1:n()
+    )
   
   # year and stratum specific summary variables
   dat_yj <-
@@ -186,14 +216,9 @@ CODAModel <- function (
         # annual deaths are unknown for years where only partial
         # training data is available
         sum(ifelse(epi_year_contains_test_data, NA, !!.deaths)),
-      # important for the alr transformation
-      deaths_reference_week_yj =
-        sum(ifelse(!!.week %in% reference_week, !!.deaths, 0)),
-      share_on_annual_deaths_reference_week_yj =
-        deaths_reference_week_yj / annual_deaths_yj,
       .groups = 'drop'
     )
-
+  
   # stratum specific summary variables
   dat_j <-
     dat_yj %>%
@@ -210,8 +235,9 @@ CODAModel <- function (
       .groups = 'drop'
     )
   suppressMessages({
-    # alr transform
-    dat_alr <-
+    # add multilevel predictors to input data and compute
+    # share on annual death by week per stratum
+    dat_jyw <-
       dat_input %>%
       left_join(
         dat_yj,
@@ -222,31 +248,57 @@ CODAModel <- function (
         by = c(as_label(.stratum_id))
       ) %>%
       mutate(
-        # outcome variable
-        share_on_annual_deaths_wyj =
-          !!.deaths / annual_deaths_yj,
-        alr_share_on_annual_deaths =
-          log(share_on_annual_deaths_wyj+fudge) -
-          log(share_on_annual_deaths_reference_week_yj+fudge),
-        alr_share_on_annual_deaths =
-          ifelse(!!.week == reference_week, NA, alr_share_on_annual_deaths),
         # predictors
         deaths_winter_centered_yj =
           (deaths_winter_yj - avg_deaths_winter_j) / sd_deaths_winter_j,
         mortality_winter_centered_yj =
-          (mortality_winter_yj - avg_mortality_winter_j) / sd_mortality_winter_j
+          (mortality_winter_yj - avg_mortality_winter_j) / sd_mortality_winter_j,
+        # outcome variable
+        share_on_annual_deaths_wyj =
+          !!.deaths / annual_deaths_yj
       ) %>%
       ungroup()
     
-    # remove reference week
-    dat_alr_no_reference_week <-
-      dat_alr %>%
-      filter(!!.week != reference_week) %>%
-      mutate(w_fac = factor(!!.week))
+    # transform outcome variable to matrix with one column
+    # per week and one row per case (i.e., stratum and year)
+    dat_jyw <-
+      dat_jyw %>%
+      arrange(!!.stratum_id, !!.year, !!.week) %>%
+      group_by(!!.stratum_id, !!.year) %>%
+      group_modify(.f = ~{
+        x <- .x[['share_on_annual_deaths_wyj']]
+        # number of weeks in composition
+        # may be 52 or 53
+        n_weeks <- length(pull(.x, !!.week))
+        if (any(is.na(x))) {
+          # if part of the annual share is missing
+          # don't bother with a CODA transform
+          z <- NA
+        } else {
+          z <- switch(
+            transform,
+            ilr = ilr(x+fudge, V = ilrBase(D=n_weeks)),
+            alr = alr(x+fudge, ivar = n_weeks) 
+          )
+          z <- c(z, NA)
+        }
+        mutate(
+          .x, transformed_share_on_annual_deaths = z,
+          n_weeks = n_weeks
+        )
+      }) %>%
+      ungroup()
     
+    dat_jyw_no_reference_week <-
+      dat_jyw %>%
+      # within each stratum-year remove the reference week
+      group_by(!!.stratum_id, !!.year) %>%
+      slice(-n_weeks[1]) %>%
+      mutate(across(!!.week, factor)) %>%
+      ungroup()
     # prepare training and prediction data
-    dat_train <- filter(dat_alr_no_reference_week, epi_year_contains_test_data == FALSE)
-    dat_pred <- dat_alr_no_reference_week
+    dat_train <- filter(dat_jyw_no_reference_week, epi_year_contains_test_data == FALSE)
+    dat_pred <- dat_jyw_no_reference_week
     
     # fit model
     model <-
@@ -260,36 +312,45 @@ CODAModel <- function (
     predictions <-
       dat_pred %>%
       mutate(
-        # predicted alr transformed death proportions by
-        # epi-year, sex, age and week
-        pred_alr_yjw =
+        # predicted transformed weekly death proportions by
+        # epi-year and stratum
+        y_hat =
           predict(model, newdata = ., type = 'response')
       ) %>%
+      select(row_id, y_hat) %>%
       # merge into original data which does include reference week
-      right_join(dat_alr) %>%
-      # transform alr back to proportions and then deaths
+      right_join(dat_jyw, by = 'row_id') %>%
+      # within each stratum-year, convert predicted transformed
+      # weekly death proportions to proportion scale
+      group_by(!!.stratum_id, !!.year) %>%
+      group_modify(~{
+        # predicted transformed share without reference week
+        z_hat <- .x$y_hat[-(.x$n_weeks[1])]
+        # back-transform from coda space to proportion space
+        x_hat <- switch(
+          transform,
+          ilr = ilrInv(z_hat, V = ilrBase(D=.x$n_weeks[1])),
+          alr = alrInv(z_hat)
+        )
+      mutate(.x, pred_share_on_annual_deaths_yjw = x_hat)
+      }) %>%
       mutate(
-        pred_exp_alr_yjw =
-          ifelse(!!.week == reference_week, 1, exp(pred_alr_yjw))
-      ) %>%
-      group_by(!!.year, !!.stratum_id) %>%
-      mutate(
-        pred_share_on_annual_deaths_yjw =
-          pred_exp_alr_yjw/sum(pred_exp_alr_yjw),
         pred_share_exogenous_deaths_yj =
           sum(ifelse(!!.week %in% exogenous_epi_weeks, pred_share_on_annual_deaths_yjw, 0))
       ) %>%
+      select(-n_weeks) %>%
       ungroup() %>%
+      # convert to death count scale
       mutate(
         pred_annual_deaths_yj =
           deaths_exogenous_yj/pred_share_exogenous_deaths_yj,
         predicted_deaths =
           pred_share_on_annual_deaths_yjw*pred_annual_deaths_yj
-      )
+      ) %>%
+      select(row_id, predicted_deaths) %>%
+      right_join(dat_input, by = 'row_id') %>%
+      select(-row_id)
   })
-
-  #predictions <- df_input
-  #predictions$predicted_deaths <- dat_pred$predicted_deaths
   
   return(
     list(model = model, predictions = predictions)

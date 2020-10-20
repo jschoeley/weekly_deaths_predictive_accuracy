@@ -1,6 +1,6 @@
 # Predict weekly death counts by sex and age
 #
-# 2020-10-15
+# 2020-10-20
 #
 # Jonas Schöley
 
@@ -14,7 +14,7 @@ library(tidyverse)
 
 cnst <- list(
   # which countries to analyze?
-  countries = c('DNK', 'SWE')
+  countries = c('DNK', 'SWE', 'NOR', 'FIN', 'ESP', 'FRATNP', 'GBR_SCO')
 )
 
 dat <- list()
@@ -22,15 +22,16 @@ fig <- list()
 
 # Load data -------------------------------------------------------
 
+# load and prepare data for cross validation
 load('data/2020-10-05-xstmf_cv.RData')
 dat$cv_data <-
   xstmf_cv %>%
   filter(country_code %in% cnst$countries) %>%
-  rename(y = epi_year, w = epi_week, j = stratum_id) %>%
+  rename(j = stratum_id) %>%
   mutate(
-    j_fac = factor(j),
-    w_fac = as.factor(w),
-    y_short = paste0(substr(y, 3, 4), '/', substr(y, 8, 9))
+    iso_week_fac = as.factor(iso_week),
+    epi_week_fac = as.factor(epi_week),
+    j_fac = as.factor(j)
   )
 
 # Specifications of models to test --------------------------------
@@ -62,14 +63,14 @@ dat$mod_spec <-
       formula = formula(
         observed_deaths ~
           # log linear long term trend
-          weeks_since_origin*j +
+          weeks_since_origin*j_fac +
           # seasonality
           # full year period
-          sin(2*pi*w/(365.25/7))*j_fac +
-          cos(2*pi*w/(365.25/7))*j_fac +
+          sin(2*pi*epi_week/(365.25/7))*j_fac +
+          cos(2*pi*epi_week/(365.25/7))*j_fac +
           # half year period
-          sin(2*pi*w/(365.25/2/7))*j_fac +
-          cos(2*pi*w/(365.25/2/7))*j_fac +
+          sin(2*pi*epi_week/(365.25/2/7))*j_fac +
+          cos(2*pi*epi_week/(365.25/2/7))*j_fac +
           # adjustment for special weeks
           special_week*j_fac +
           # exposures
@@ -84,76 +85,126 @@ dat$mod_spec <-
           weeks_since_origin*j_fac +
           # seasonality
           # full year period
-          sin(2*pi*w/(365.25/7))*j_fac +
-          cos(2*pi*w/(365.25/7))*j_fac +
+          sin(2*pi*epi_week/(365.25/7))*j_fac +
+          cos(2*pi*epi_week/(365.25/7))*j_fac +
           # half year period
-          sin(2*pi*w/(365.25/2/7))*j_fac +
-          cos(2*pi*w/(365.25/2/7))*j_fac +
+          sin(2*pi*epi_week/(365.25/2/7))*j_fac +
+          cos(2*pi*epi_week/(365.25/2/7))*j_fac +
           # adjustment for special weeks
           special_week*j_fac
       ),
       family = quasipoisson(link = 'log')
     ),
-    'Serfling-Poisson GLM (single cycle)', 'serfl-1p', 'serfling', list(
-      formula = formula(
-        observed_deaths ~
-          # log linear long term trend
-          weeks_since_origin*j_fac +
-          # seasonality
-          # full year period
-          sin(2*pi*w/(365.25/7))*j_fac +
-          cos(2*pi*w/(365.25/7))*j_fac +
-          # adjustment for special weeks
-          special_week*j_fac +
-          # exposures
-          offset(log(exposure_pw_hmd))
-      ),
-      family = quasipoisson(link = 'log')
-    ),
-    'Poisson GAM', 'poisson-gam', 'gam', list(
-      formula = formula(
-        observed_deaths ~
-          1 + sex + age_group +
-          # log linear long term trend
-          weeks_since_origin*j_fac +
-          # penalized cyclic spline for seasonality
-          s(w, bs = 'cp', k = 52, by = j_fac) +
-          # adjustment for special weeks
-          special_week*j_fac +
-          # exposures
-          offset(log(exposure_pw_hmd))
-      ),
-      family = quasipoisson(link = 'log'),
-      method = 'REML'
-    ),
+    # 'Serfling-Poisson GLM (single cycle)', 'serfl-1p', 'serfling', list(
+    #   formula = formula(
+    #     observed_deaths ~
+    #       # log linear long term trend
+    #       weeks_since_origin*j_fac +
+    #       # seasonality
+    #       # full year period
+    #       sin(2*pi*epi_week/(365.25/7))*j_fac +
+    #       cos(2*pi*epi_week/(365.25/7))*j_fac +
+    #       # adjustment for special weeks
+    #       special_week*j_fac +
+    #       # exposures
+    #       offset(log(exposure_pw_hmd))
+    #   ),
+    #   family = quasipoisson(link = 'log')
+    # ),
+    # 'Poisson GAM', 'poisson-gam', 'gam', list(
+    #   formula = formula(
+    #     observed_deaths ~
+    #       # log linear long term trend
+    #       weeks_since_origin*j_fac +
+    #       # penalized cyclic spline for seasonality
+    #       s(epi_week, bs = 'cp', k = 52, by = j_fac) +
+    #       # adjustment for special weeks
+    #       special_week*j_fac +
+    #       # exposures
+    #       offset(log(exposure_pw_hmd))
+    #   ),
+    #   family = quasipoisson(link = 'log'),
+    #   method = 'REML'
+    # ),
     # 'Poisson GAM (no trend)', 'gam', list(
     #   formula = formula(
     #     observed_deaths ~
     #       1 + sex + age_group +
     #       # penalized cyclic spline for seasonality
-    #       s(w, bs = 'cp', k = 52, by = j) +
+    #       s(epi_week, bs = 'cp', k = 52, by = j_fac) +
     #       # adjustment for special weeks
-    #       special_week*j +
+    #       special_week*j_fac +
     #       # exposures
     #       offset(log(exposure_pw_hmd))
     #   ),
     #   family = quasipoisson(link = 'log')
-    # )
-    'CODA LM', 'coda', 'coda', list(
+    # ),
+    'CODA-ALR centered deaths', 'coda-alr-deaths', 'coda', list(
     formula = formula(
-      alr_share_on_annual_deaths ~
+      transformed_share_on_annual_deaths ~
         # average alr proportion of deaths over the years
         # by epi-week, and stratified by age and sex
-        w_fac*j_fac +
+        epi_week_fac*j_fac +
         # sex and age specific correlations between
         # centered and scaled "winter mortality" and
         # alr proportion of deaths by week
-        mortality_winter_centered_yj:w_fac:j_fac
+        deaths_winter_centered_yj:epi_week_fac:j_fac
     ),
-      reference_week = 0,
-      winter_deaths_epi_weeks =
+    transform = 'alr',
+    winter_death_weeks =
+      IsoWeekToEpiWeek(1:9, w_start = 27),
+    exogenous_weeks =
+      IsoWeekToEpiWeek(c(27:52, 1:9), w_start = 27)
+    ),
+    'CODA-ILR centered deaths', 'coda-ilr-deaths', 'coda', list(
+      formula = formula(
+        transformed_share_on_annual_deaths ~
+          # average alr proportion of deaths over the years
+          # by epi-week, and stratified by age and sex
+          epi_week_fac*j_fac +
+          # sex and age specific correlations between
+          # centered and scaled "winter mortality" and
+          # alr proportion of deaths by week
+          deaths_winter_centered_yj:epi_week_fac:j_fac
+      ),
+      transform = 'ilr',
+      winter_death_weeks =
         IsoWeekToEpiWeek(1:9, w_start = 27),
-      exogenous_epi_weeks =
+      exogenous_weeks =
+        IsoWeekToEpiWeek(c(27:52, 1:9), w_start = 27)
+    ),
+    'CODA-ALR centered mortality', 'coda-alr-mort', 'coda', list(
+      formula = formula(
+        transformed_share_on_annual_deaths ~
+          # average alr proportion of deaths over the years
+          # by epi-week, and stratified by age and sex
+          epi_week_fac*j_fac +
+          # sex and age specific correlations between
+          # centered and scaled "winter mortality" and
+          # alr proportion of deaths by week
+          mortality_winter_centered_yj:epi_week_fac:j_fac
+      ),
+      transform = 'alr',
+      winter_death_weeks =
+        IsoWeekToEpiWeek(1:9, w_start = 27),
+      exogenous_weeks =
+        IsoWeekToEpiWeek(c(27:52, 1:9), w_start = 27)
+    ),
+    'CODA-ILR centered mortality', 'coda-ilr-mort', 'coda', list(
+      formula = formula(
+        transformed_share_on_annual_deaths ~
+          # average alr proportion of deaths over the years
+          # by epi-week, and stratified by age and sex
+          epi_week_fac*j_fac +
+          # sex and age specific correlations between
+          # centered and scaled "winter mortality" and
+          # alr proportion of deaths by week
+          mortality_winter_centered_yj:epi_week_fac:j_fac
+      ),
+      transform = 'ilr',
+      winter_death_weeks =
+        IsoWeekToEpiWeek(1:9, w_start = 27),
+      exogenous_weeks =
         IsoWeekToEpiWeek(c(27:52, 1:9), w_start = 27)
     )
   ) %>%
@@ -238,11 +289,13 @@ dat$fitted_models <-
       model_fit_and_predictions <- CODAModel(
         df_input = input_dat,
         formula = .x$model_spec[[1]][[1]][[1]]$formula,
-        winter_deaths_epi_weeks = .x$model_spec[[1]][[1]][[1]]$winter_deaths_epi_weeks,
-        exogenous_epi_weeks = .x$model_spec[[1]][[1]][[1]]$exogenous_epi_weeks,
-        reference_week = .x$model_spec[[1]][[1]][[1]]$reference_week,
-        stratum_name = j, week_name = w, death_name = observed_deaths,
-        exposure_name = exposure_pw_hmd, sample_name = sample, year_name = y
+        winter_deaths_epi_weeks = .x$model_spec[[1]][[1]][[1]]$winter_death_weeks,
+        exogenous_epi_weeks = .x$model_spec[[1]][[1]][[1]]$exogenous_weeks,
+        transform = .x$model_spec[[1]][[1]][[1]]$transform,
+        week_name = epi_week,
+        year_name = epi_year,
+        stratum_name = j_fac, death_name = observed_deaths,
+        exposure_name = exposure_pw_hmd, sample_name = sample
       ) 
         
     }
@@ -309,7 +362,11 @@ dat$fitted_models %>%
 
 # Exports ---------------------------------------------------------
 
-fitted_models <- dat$fitted_models
+fitted_models <-
+  # save only the predictions of the fitted models
+  # and not the model object to save time when saving
+  # and  loading
+  dat$fitted_models %>% select(-fitted_model)
 save(
   fitted_models, file = paste0('out/', Sys.Date(), '-fitted_models.RData'),
   compress = 'xz'

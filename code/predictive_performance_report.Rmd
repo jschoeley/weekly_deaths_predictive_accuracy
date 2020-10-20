@@ -14,7 +14,7 @@ output:
 # This script generates a report on the out-of-sample prediction
 # error of the various models fitted in <01-fit_models.R>. 
 # Compile the file within R via
-#     rmarkdown::render('./code/visual_consistency_checks.Rmd', output_dir = './out')
+#     rmarkdown::render('./code/predictive_performance_report.Rmd', output_dir = './out')
 knitr::opts_chunk$set(
   echo = FALSE,
   message = FALSE,
@@ -25,9 +25,8 @@ knitr::opts_chunk$set(
 
 ```{r load-data}
 source('../code/00-init.R')
-load('../out/2020-10-19-fitted_models.RData')
+load('../out/2020-10-20-fitted_models.RData')
 ```
-
 
 ```{r init}
 library(tidyverse)
@@ -50,7 +49,6 @@ cnst$n_countries <- length(cnst$names_countries)
 # residuals by week and sex (aggregate over age group)
 dat$residuals_by_week_and_sex <-
   fitted_models %>%
-  select(-fitted_model) %>%
   group_by(country_code, cv_id, model_name, model_name_short) %>%
   group_modify(.keep = FALSE, .f = ~{
     
@@ -231,6 +229,23 @@ create_section <- function(country) {
     dat$residuals_by_week_and_sex[
       dat$residuals_by_week_and_sex$country_code == country,
     ]
+  
+  pander::pandoc.p('')
+  
+  the_plot <-
+    country_data %>%
+    filter(sample == 'test') %>%
+    ggplot(aes(x = iso_week, color = sex)) +
+    geom_point(aes(y = observed_deaths), shape = 21) +
+    geom_line(aes(y = predicted_deaths)) +
+    facet_grid(model_name~cv_id) +
+    glob$MyGGplotTheme(grid = 'xy') +
+    labs(
+      title = paste(country, 'Predicted (points) vs. observed (lines) weekly death counts on test data by CV series and model'),
+      x = 'ISO week', y = 'Weekly death counts'
+    )
+  
+  print(the_plot)
   
   pander::pandoc.p('')
   #pander::pandoc.header('Prediction error by week', level = 3)
