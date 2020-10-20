@@ -38,11 +38,13 @@ fig <- list()
 tab <- list()
 cnst <- list()
 
-cnst$facet_ncol <- 3
-cnst$names_models <- unique(fitted_models$model_name) %>% sort()
-cnst$n_models <- length(cnst$names_models)
-cnst$names_countries <- unique(fitted_models$country_code) %>% sort()
-cnst$n_countries <- length(cnst$names_countries)
+cnst <- within(cnst, {
+  facet_ncol = 3
+  names_models = sort(unique(fitted_models$model_name))
+  n_models = length(unique(fitted_models$model_name))
+  names_countries = sort(unique(fitted_models$country_code))
+  n_countries = length(unique(fitted_models$country_code))
+})
 ```
 
 ```{r residual-calculation}
@@ -116,7 +118,9 @@ dat$summarised_residuals <-
 
 # Results across countries
 
-```{r w27-error-table}
+## Errors: Cumulative deaths week 10 to 27
+
+```{r w27-percentage-error-table}
 tab$w27_mape <-
   dat$residuals_cumulative_deaths_by_sex %>%
   select(country_code, model_name, sex, mape) %>%
@@ -131,10 +135,10 @@ tab$w27_mape <-
     cols_label(., .list = cnames)
   } %>%
   tab_header(
-    title = 'Cumulative deaths week 10 to 27',
-    subtitle = 'Mean absolute percentage error'
+    title = 'Mean absolute percentage error'
   ) %>%
-  tab_source_note(source_note = 'Lowest error bold, highest error italic.')
+  tab_source_note(source_note = 'Lowest error bold, highest error italic.') %>%
+  tab_style(style = cell_text(color = '#BDBDBD'), locations = cells_body())
 for (i in 1:cnst$n_countries) {
   tab$w27_mape <-
     tab$w27_mape %>%
@@ -148,9 +152,115 @@ for (i in 1:(cnst$n_countries*2)) {
   tab$w27_mape <-
     tab$w27_mape %>%
     tab_style(
+      style = cell_text(weight = 'bold', color = 'black'),
+      locations = cells_body(
+        rows = rpos_min[i],
+        columns = i+1
+      )
+    ) %>%
+    tab_style(
+      style = cell_text(style = 'italic', color = 'black'),
+      locations = cells_body(
+        rows = rpos_max[i],
+        columns = i+1
+      )
+    )
+}
+tab$w27_mape
+```
+
+```{r w27-count-error-table}
+tab$w27_mae <-
+  dat$residuals_cumulative_deaths_by_sex %>%
+  select(country_code, model_name, sex, mae) %>%
+  arrange(country_code, sex) %>%
+  pivot_wider(names_from = c(country_code, sex), values_from = mae) %>%
+  gt() %>%
+  fmt_number(2:last_col(), decimals = 0) %>% {
+    cnames <- as.list(c('',
+                        rep(c('F', 'M'), times = cnst$n_countries)))
+    names(cnames) <- c('model_name', unlist(.[['_boxhead']]$column_label)[-1])
+    
+    cols_label(., .list = cnames)
+  } %>%
+  tab_header(
+    title = 'Mean absolute count error'
+  ) %>%
+  tab_source_note(source_note = 'Lowest error bold, highest error italic.') %>%
+  tab_style(style = cell_text(color = '#BDBDBD'), locations = cells_body())
+for (i in 1:cnst$n_countries) {
+  tab$w27_mae <-
+    tab$w27_mae %>%
+    tab_spanner(label = cnst$names_countries[i], columns = (i*2):(i*2+1))
+}
+for (i in 1:(cnst$n_countries*2)) {
+  # location of rows where metric is minimal by column
+  rpos_min <- apply(tab$w27_mae['_data'][[1]][,-1], 2, which.min)
+    # location of rows where metric is maximal by column
+  rpos_max <- apply(tab$w27_mae['_data'][[1]][,-1], 2, which.max)
+  tab$w27_mae <-
+    tab$w27_mae %>%
+    tab_style(
+      style = cell_text(weight = 'bold', color = 'black'),
+      locations = cells_body(
+        rows = rpos_min[i],
+        columns = i+1
+      )
+    ) %>%
+    tab_style(
+      style = cell_text(style = 'italic', color = 'black'),
+      locations = cells_body(
+        rows = rpos_max[i],
+        columns = i+1
+      )
+    )
+}
+tab$w27_mae
+```
+
+```{r w27-percentage-bias-table}
+tab$w27_mpe <-
+  dat$residuals_cumulative_deaths_by_sex %>%
+  select(country_code, model_name, sex, mpe) %>%
+  arrange(country_code, sex) %>%
+  pivot_wider(names_from = c(country_code, sex), values_from = mpe) %>%
+  gt() %>%
+  fmt_number(2:last_col(), decimals = 1) %>% {
+    cnames <- as.list(c('',
+                        rep(c('F', 'M'), times = cnst$n_countries)))
+    names(cnames) <- c('model_name', unlist(.[['_boxhead']]$column_label)[-1])
+    
+    cols_label(., .list = cnames)
+  } %>%
+  tab_header(
+    title = 'Mean percentage error (Bias)'
+  ) %>%
+  tab_source_note(source_note = 'Lowest error bold, highest error italic.')
+for (i in 1:cnst$n_countries) {
+  tab$w27_mpe <-
+    tab$w27_mpe %>%
+    tab_spanner(label = cnst$names_countries[i], columns = (i*2):(i*2+1))
+}
+for (i in 1:(cnst$n_countries*2)) {
+  # location of rows where metric is minimal by column
+  rpos_min <- apply(tab$w27_mpe['_data'][[1]][,-1], 2, function (x) which.min(abs(x)))
+  # location of rows where metric is maximal by column
+  rpos_max <- apply(tab$w27_mpe['_data'][[1]][,-1], 2, function (x) which.max(abs(x)))
+  # location of rows with negative values
+  rpos_neg <- apply(tab$w27_mpe['_data'][[1]][,-1], 2, function (x) which(x<0))
+  tab$w27_mpe <-
+    tab$w27_mpe %>%
+    tab_style(
       style = cell_text(weight = 'bold'),
       locations = cells_body(
         rows = rpos_min[i],
+        columns = i+1
+      )
+    ) %>%
+    tab_style(
+      style = cell_text(color = 'red',),
+      locations = cells_body(
+        rows = rpos_neg[[i]],
         columns = i+1
       )
     ) %>%
@@ -162,10 +272,12 @@ for (i in 1:(cnst$n_countries*2)) {
       )
     )
 }
-tab$w27_mape
+tab$w27_mpe
 ```
 
-```{r weekly-error-table}
+## Errors: Weekly death counts weeks 10 to 27
+
+```{r weekly-percentage-error-table}
 tab$weekly_mape <-
   dat$summarised_residuals %>%
   filter(sample == 'test') %>%
@@ -181,10 +293,10 @@ tab$weekly_mape <-
     cols_label(., .list = cnames)
   } %>%
   tab_header(
-    title = 'Weekly deaths week 10 to 27',
-    subtitle = 'Mean absolute percentage error'
+    title = 'Mean absolute percentage error'
   ) %>%
-  tab_source_note(source_note = 'Lowest error bold, highest error italic.')
+  tab_source_note(source_note = 'Lowest error bold, highest error italic.') %>%
+  tab_style(style = cell_text(color = '#BDBDBD'), locations = cells_body())
 for (i in 1:cnst$n_countries) {
   tab$weekly_mape <-
     tab$weekly_mape %>%
@@ -198,9 +310,67 @@ for (i in 1:(cnst$n_countries*2)) {
   tab$weekly_mape <-
     tab$weekly_mape %>%
      tab_style(
+      style = cell_text(weight = 'bold', color = 'black'),
+      locations = cells_body(
+        rows = rpos_min[i],
+        columns = i+1
+      )
+    ) %>%
+    tab_style(
+      style = cell_text(style = 'italic', color = 'black'),
+      locations = cells_body(
+        rows = rpos_max[i],
+        columns = i+1
+      )
+    )
+}
+tab$weekly_mape
+```
+
+```{r weekly-percentage-bias-table}
+tab$weekly_mpe <-
+  dat$summarised_residuals %>%
+  filter(sample == 'test') %>%
+  select(country_code, model_name, sex, mpe) %>%
+  arrange(country_code, sex) %>%
+  pivot_wider(names_from = c(country_code, sex), values_from = mpe) %>%
+  gt() %>%
+  fmt_number(2:last_col(), decimals = 1) %>% {
+    cnames <- as.list(c('',
+                        rep(c('F', 'M'), times = cnst$n_countries)))
+    names(cnames) <- c('model_name', unlist(.[['_boxhead']]$column_label)[-1])
+    
+    cols_label(., .list = cnames)
+  } %>%
+  tab_header(
+    title = 'Mean percentage error (Bias)'
+  ) %>%
+  tab_source_note(source_note = 'Lowest error bold, highest error italic.')
+for (i in 1:cnst$n_countries) {
+  tab$weekly_mpe <-
+    tab$weekly_mpe %>%
+    tab_spanner(label = cnst$names_countries[i], columns = (i*2):(i*2+1))
+}
+for (i in 1:(cnst$n_countries*2)) {
+  # location of rows where metric is minimal by column
+  rpos_min <- apply(tab$weekly_mpe['_data'][[1]][,-1], 2, function (x) which.min(abs(x)))
+  # location of rows where metric is maximal by column
+  rpos_max <- apply(tab$weekly_mpe['_data'][[1]][,-1], 2, function (x) which.max(abs(x)))
+  # location of rows with negative values
+  rpos_neg <- apply(tab$weekly_mpe['_data'][[1]][,-1], 2, function (x) which(x<0))
+  tab$weekly_mpe <-
+    tab$weekly_mpe %>%
+    tab_style(
       style = cell_text(weight = 'bold'),
       locations = cells_body(
         rows = rpos_min[i],
+        columns = i+1
+      )
+    ) %>%
+    tab_style(
+      style = cell_text(color = 'red',),
+      locations = cells_body(
+        rows = rpos_neg[[i]],
         columns = i+1
       )
     ) %>%
@@ -212,7 +382,7 @@ for (i in 1:(cnst$n_countries*2)) {
       )
     )
 }
-tab$weekly_mape
+tab$weekly_mpe
 ```
 
 # Results by country

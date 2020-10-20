@@ -16,28 +16,28 @@
 
 # For test purposes -----------------------------------------------
 
-load('data/2020-10-05-xstmf_cv.RData')
-library(dplyr)
-test_data <-
-  xstmf_cv %>%
-  filter(country_code == 'DNK', cv_id == 1) %>%
-  rename(y = epi_year, w = epi_week, j = stratum_id) %>%
-  mutate(
-    j_fac = factor(j),
-    w_fac = as.factor(w),
-    y_short = paste0(substr(y, 3, 4), '/', substr(y, 8, 9))
-  )
-
-df_input <- test_data
-df_training <- filter(test_data, sample == 'training')
-df_test <- filter(test_data, sample == 'test')
-
-.week <- quo(w)
-.deaths <- quo(observed_deaths)
-.exposures <- quo(exposure_pw_hmd)
-.year <- quo(y)
-.sample <- quo(sample)
-.stratum_id <- quo(j_fac)
+# load('data/2020-10-05-xstmf_cv.RData')
+# library(dplyr)
+# test_data <-
+#   xstmf_cv %>%
+#   filter(country_code == 'DNK', cv_id == 1) %>%
+#   rename(y = epi_year, w = epi_week, j = stratum_id) %>%
+#   mutate(
+#     j_fac = factor(j),
+#     w_fac = as.factor(w),
+#     y_short = paste0(substr(y, 3, 4), '/', substr(y, 8, 9))
+#   )
+# 
+# df_input <- test_data
+# df_training <- filter(test_data, sample == 'training')
+# df_test <- filter(test_data, sample == 'test')
+# 
+# .week <- quo(w)
+# .deaths <- quo(observed_deaths)
+# .exposures <- quo(exposure_pw_hmd)
+# .year <- quo(y)
+# .sample <- quo(sample)
+# .stratum_id <- quo(j_fac)
 
 # Simple averages model -------------------------------------------
 
